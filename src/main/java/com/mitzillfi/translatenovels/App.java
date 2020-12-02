@@ -24,6 +24,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 
+import org.apache.commons.io.IOUtils;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -134,7 +135,9 @@ public class App extends JFrame {
                 }
             });
             startTranslate.addActionListener(e -> new GenerateChapters(inputPath.getText(), inputWebURL.getText(),
-                    0 + Integer.parseInt(inputChapterStart.getText()), 0 + Integer.parseInt(inputChapterEnd.getText()),
+                    0 + Integer.parseInt(inputChapterStart.getText()),
+                    (inputChapterEnd.getText().matches("\\b\\d+\\b")) ? 0 + Integer.parseInt(inputChapterEnd.getText())
+                            : 0,
                     inputBookName.getText()).init());
 
         }
@@ -170,7 +173,7 @@ class GenerateChapters {
     }
 
     public void init() {
-        Extract extract = new Extract(websiteURL, (endChapter - startChapter) + 1);
+        Extract extract = new Extract(websiteURL, (startChapter < endChapter) ? (endChapter - startChapter) + 1 : 1);
         extract.init();
         Translate translate = new Translate(extract.getRawChapters());
         translate.translateRawChapters();
@@ -208,6 +211,9 @@ class GenerateChapters {
                             .select("#wrapper > div.content_read > div > div.bookname > div.bottem1 > a:nth-child(3)")
                             .first();
                     rawChapterLinks[i] = "https://www.biqubao.com" + link.attr("href");
+                }
+                if (!rawChapterLinks[rawChapterLinks.length - 1].contains("html")) {
+                    rawChapterLinks[rawChapterLinks.length - 1] = rawChapterLinks[rawChapterLinks.length - 2];
                 }
 
             } catch (
@@ -319,7 +325,7 @@ class GenerateChapters {
                 translatedChapters[i] = (text);
                 translatedTitles[i] = bookName + "-Chapter-" + String.format("%03d", currentChapter);
                 currentChapter++;
-                if (i % 15 == 0) {
+                if (i % 15 == 0 && i != 0) {
                     driver = new ChromeDriver(options);
                 }
             }
@@ -364,9 +370,10 @@ class GenerateChapters {
         private void createHTML() {
             for (int i = 0; i < rawChapters.length; i++) {
                 try (Scanner sc = new Scanner(translatedChapters[i])) {
-
-                    String html = Files
-                            .readString(Paths.get(App.class.getClassLoader().getResource("base.html").toURI()));
+                    // String html =
+                    // Files.readString(Paths.get(App.class.getClassLoader().getResource("base.html").toURI()));
+                    String html = IOUtils.toString(App.class.getClassLoader().getResourceAsStream("base.html"),
+                            StandardCharsets.UTF_8);
 
                     String ss = "<h2 class=\"t\">" + sc.nextLine() + "</h2>";
                     StringBuilder bld = new StringBuilder();
@@ -389,18 +396,22 @@ class GenerateChapters {
         }
 
         private void createEBook() {
-            String regex = "[\\/:\"*?<>|]+";
+            String regex = "[\\/:\"*?<>|]";
             System.out.println("GOT HERE ");
             try {
                 System.out.println("got in ");
                 Book book = new Book();
                 book.getMetadata().addTitle(bookName + "Chapter " + startChapter + " - " + endChapter);
                 book.getMetadata().addAuthor(new Author("jo", "mama"));
-                book.getResources().add(new Resource(
-                        App.class.getClassLoader().getResourceAsStream("\\page_styles.css"), "page_styles.css"));
+                book.getResources()
+                        .add(new Resource(
+                                IOUtils.toByteArray(App.class.getClassLoader().getResourceAsStream("page_styles.css")),
+                                "page_styles.css"));
 
-                book.getResources().add(new Resource(App.class.getClassLoader().getResourceAsStream("\\stylesheet.css"),
-                        "stylesheet.css"));
+                book.getResources()
+                        .add(new Resource(
+                                IOUtils.toByteArray(App.class.getClassLoader().getResourceAsStream("stylesheet.css")),
+                                "stylesheet.css"));
 
                 book.setCoverImage(new Resource(
                         new URL("https://cdn.novelupdates.com/images/2016/09/liqiye.jpg").openStream(), "cover.jpg"));
@@ -408,12 +419,11 @@ class GenerateChapters {
                     book.addSection("Chapter " + (startChapter + i),
                             new Resource(
                                     new ByteArrayInputStream(translatedChapters[i].getBytes(StandardCharsets.UTF_8)),
-                                    translatedTitles[i].replaceAll("/\s/g", "_").replaceAll(regex, "") + ".html"));
+                                    translatedTitles[i].replaceAll("\\s", "_").replaceAll(regex, "") + ".html"));
                 }
                 EpubWriter epubWriter = new EpubWriter();
-
-                epubWriter.write(book, new FileOutputStream(
-                        filePath + bookName + " Chapter " + startChapter + "-" + endChapter + ".epub"));
+                String bkName = (startChapter >= endChapter) ? startChapter + "" : startChapter + "-" + endChapter;
+                epubWriter.write(book, new FileOutputStream(filePath + bookName + " Chapter " + bkName + ".epub"));
             } catch (Exception e) {
                 e.printStackTrace();
             }
