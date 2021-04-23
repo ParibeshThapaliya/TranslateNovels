@@ -10,24 +10,29 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.io.ByteArrayInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Scanner;
 
+import javax.imageio.ImageIO;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.filechooser.FileFilter;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.apache.commons.io.IOUtils;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
@@ -73,11 +78,13 @@ public class App extends JFrame {
         public static final int WIDTH = 375;
         public static final int HEIGHT = 400;
         private transient MigLayout layout;
-        private JLabel directory, website, startChapter, endchapter, bookName;
+        private JLabel directory, website, startChapter, endchapter, bookName, language, coverImage;
         private static final String WRAP = "wrap 20";
-        private JTextField inputPath, inputWebURL, inputChapterStart, inputChapterEnd, inputBookName;
+        private JTextField inputPath, inputWebURL, inputChapterStart, inputChapterEnd, inputBookName, inputCoverImage;
+        private JComboBox<String> selectLanguage;
+        private String[] languageOptions;
 
-        private JButton pasteURL, openDir, startTranslate;
+        private JButton pasteURL, openDir, selectImage, startTranslate;
 
         protected Screen() {
             super();
@@ -90,31 +97,43 @@ public class App extends JFrame {
         }
 
         protected void init() {
+            languageOptions = new String[] { "Chinese", "Japanese" };
             directory = new JLabel(" Directory");
             website = new JLabel("Website");
             startChapter = new JLabel("start");
             endchapter = new JLabel("       end           ");
             bookName = new JLabel("Book Name");
+            language = new JLabel("language");
+            coverImage = new JLabel("Cover Image");
 
             inputPath = new JTextField(System.getProperty("user.home") + "\\Desktop\\", 20);
-            inputWebURL = new JTextField("https://www.biqubao.com/book/993/10155291.html", 20);
+            inputWebURL = new JTextField("https://ncode.syosetu.com/n1745ct/2/", 20);
             inputChapterStart = new JTextField("1", 15);
             inputChapterEnd = new JTextField("3", 15);
-            inputBookName = new JTextField("Emperors Domination", 20);
+            inputBookName = new JTextField("", 20);
+            inputCoverImage = new JTextField("", 20);
 
+            selectLanguage = new JComboBox<>(languageOptions);
             openDir = new JButton("...");
+            selectImage = new JButton("...");
             pasteURL = new JButton("\uD83D\uDCCB");
             startTranslate = new JButton("START");
 
             openDir.setMaximumSize(new Dimension(48, 17));
+            selectImage.setMaximumSize(new Dimension(48, 17));
             openDir.setFocusPainted(false);
+            selectImage.setFocusPainted(false);
             pasteURL.setMaximumSize(new Dimension(48, 17));
             inputWebURL.setSelectedTextColor(new Color(0, 0, 0, 200));
             inputWebURL.selectAll();
             openDir.setSize(20, 15);
+            selectImage.setSize(20, 15);
             add(directory);
             add(inputPath);
             add(openDir, WRAP);
+            add(coverImage);
+            add(inputCoverImage);
+            add(selectImage, WRAP);
             add(website);
             add(inputWebURL);
             add(pasteURL, WRAP);
@@ -124,8 +143,20 @@ public class App extends JFrame {
             add(inputChapterEnd, WRAP);
             add(bookName);
             add(inputBookName, WRAP);
-            add(startTranslate, "cell 0 6 ");
-            openDir.addActionListener(e -> inputPath.setText(selectFile(inputPath.getText())));
+            add(language);
+            add(selectLanguage, WRAP);
+            add(startTranslate, "cell 1 7 ");
+            openDir.addActionListener(e -> inputPath.setText(selectFile(inputPath.getText(), true)));
+            selectImage.addActionListener(e -> {
+                try {
+                    inputCoverImage.setText(
+                            Paths.get(selectFile(inputCoverImage.getText(), false)).toUri().toURL().toString());
+                } catch (MalformedURLException e2) {
+
+                    e2.printStackTrace();
+                }
+            });
+
             pasteURL.addActionListener(e -> {
                 try {
                     inputWebURL.setText((String) Toolkit.getDefaultToolkit().getSystemClipboard()
@@ -134,18 +165,32 @@ public class App extends JFrame {
                     e1.printStackTrace();
                 }
             });
-            startTranslate.addActionListener(e -> new GenerateChapters(inputPath.getText(), inputWebURL.getText(),
-                    0 + Integer.parseInt(inputChapterStart.getText()),
-                    (inputChapterEnd.getText().matches("\\b\\d+\\b")) ? 0 + Integer.parseInt(inputChapterEnd.getText())
-                            : 0,
-                    inputBookName.getText()).init());
+            startTranslate.addActionListener(e -> {
+                System.out.println(selectLanguage.getSelectedItem().toString());
+                new GenerateChapters(inputPath.getText(), inputWebURL.getText(),
+                        0 + Integer.parseInt(inputChapterStart.getText()),
+                        (inputChapterEnd.getText().matches("\\b\\d+\\b"))
+                                ? 0 + Integer.parseInt(inputChapterEnd.getText())
+                                : 0,
+                        inputBookName.getText(), inputCoverImage.getText(), selectLanguage.getSelectedItem().toString())
+                                .init();
+            });
 
         }
 
-        private String selectFile(String s) {
+        private String selectFile(String s, boolean directoriesOnly) {
             JFileChooser chooser = new JFileChooser();
-            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            chooser.setDialogTitle("select Folder");
+            if (directoriesOnly) {
+                chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                chooser.setDialogTitle("select Folder");
+            } else {
+                String[] suffices = ImageIO.getReaderFileSuffixes();
+                for (int i = 0; i < suffices.length; i++) {
+                    FileFilter filter = new FileNameExtensionFilter(suffices[i] + " files", suffices[i]);
+                    chooser.addChoosableFileFilter(filter);
+                }
+                chooser.setDialogTitle("select Image");
+            }
 
             if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 return chooser.getSelectedFile().getPath() + "\\";
@@ -161,15 +206,19 @@ public class App extends JFrame {
 }
 
 class GenerateChapters {
-    private String filePath, websiteURL, bookName;
+    private String filePath, websiteURL, bookName, bookCoverImageFilePath, language;
     private int startChapter, endChapter;
+    private String cn = "Chinese";
 
-    public GenerateChapters(String filePath, String websiteURL, int startChapter, int endChapter, String bookName) {
+    public GenerateChapters(String filePath, String websiteURL, int startChapter, int endChapter, String bookName,
+            String bookCoverImageFilePath, String language) {
         this.bookName = bookName;
         this.filePath = filePath;
         this.websiteURL = websiteURL;
         this.startChapter = startChapter;
         this.endChapter = endChapter;
+        this.bookCoverImageFilePath = bookCoverImageFilePath;
+        this.language = language;
     }
 
     public void init() {
@@ -185,6 +234,7 @@ class GenerateChapters {
         private String[] rawChapters;
         private String[] rawChapterLinks;
         private String[] rawChapterName;
+        private String rawChapterSource;
 
         public Extract(String websiteURL, int howManyChapters) {
             this.websiteUrl = websiteURL;
@@ -194,6 +244,11 @@ class GenerateChapters {
         }
 
         public void init() {
+            if (language.equals(cn)) {
+                rawChapterSource = "https://www.biqubao.com";
+            } else {
+                rawChapterSource = "https://ncode.syosetu.com";
+            }
             findRawChapterLinks();
             findRawChaptherName();
             rawChapterTexts();
@@ -207,10 +262,25 @@ class GenerateChapters {
 
                 for (int i = 1; i < rawChapterLinks.length; i++) {
                     d = Jsoup.connect(rawChapterLinks[i - 1]).get();
-                    Element link = d
-                            .select("#wrapper > div.content_read > div > div.bookname > div.bottem1 > a:nth-child(3)")
-                            .first();
-                    rawChapterLinks[i] = "https://www.biqubao.com" + link.attr("href");
+                    Element link;
+                    if (language.equals(cn)) {
+                        link = d.select(
+                                "#wrapper > div.content_read > div > div.bookname > div.bottem1 > a:nth-child(3)")
+                                .first();
+                        rawChapterLinks[i] = rawChapterSource + link.attr("href");
+
+                    } else {
+                        Elements s = d.getElementsByClass("novel_bn");
+                        for (int j = s.size() - 1; j > 0; j--) {
+                            if (s.first().child(j).text().contains("次へ")) {
+                                link = s.first().child(j);
+                                rawChapterLinks[i] = rawChapterSource + link.attr("href");
+                                break;
+                            }
+                        }
+
+                    }
+
                 }
                 if (!rawChapterLinks[rawChapterLinks.length - 1].contains("html")) {
                     rawChapterLinks[rawChapterLinks.length - 1] = rawChapterLinks[rawChapterLinks.length - 2];
@@ -233,8 +303,13 @@ class GenerateChapters {
                 try {
                     d = Jsoup.connect(rawChapterLinks[i]).get();
                     d.outputSettings(new Document.OutputSettings().prettyPrint(false));
+                    Element e;
+                    if (language.equals(cn)) {
+                        e = d.select("#content").first();
+                    } else {
+                        e = d.getElementById("novel_honbun");
+                    }
 
-                    Element e = d.select("#content").first();
                     e.select("br").append("\\n");
                     e.select("p").prepend("\\n\\n");
                     rawChapters[i] = "\t\t\t\t\t\t\t" + rawChapterName[i] + " \n\n"
@@ -255,7 +330,12 @@ class GenerateChapters {
 
                 for (int i = 0; i < rawChapterName.length; i++) {
                     d = Jsoup.connect(rawChapterLinks[i]).get();
-                    String name = d.select("#wrapper > div.content_read > div > div.bookname > h1").text();
+                    String name;
+                    if (language.equals(cn)) {
+                        name = d.select("#wrapper > div.content_read > div > div.bookname > h1").text();
+                    } else {
+                        name = d.getElementsByClass("novel_subtitle").text();
+                    }
                     rawChapterName[i] = name;
                 }
 
@@ -293,6 +373,7 @@ class GenerateChapters {
         private ChromeOptions options = new ChromeOptions();
         private String[] translatedChapters;
         private String[] translatedTitles;
+        private String langTag;
 
         public Translate(String[] rawChapters) {
             this.currentChapter = startChapter;
@@ -300,6 +381,11 @@ class GenerateChapters {
 
             translatedChapters = new String[rawChapters.length];
             translatedTitles = new String[rawChapters.length];
+            if (language.equals(cn)) {
+                langTag = "zh/en/";
+            } else {
+                langTag = "ja/en/";
+            }
             System.setProperty("webdriver.chrome.driver", "c:\\chromedriver.exe");
 
             options.addArguments("headless");
@@ -316,7 +402,7 @@ class GenerateChapters {
                     Thread.currentThread().interrupt();
                     e.printStackTrace();
                 }
-                driver.get("https://www.deepl.com/en/translator#zh/en/"
+                driver.get("https://www.deepl.com/en/translator#" + langTag
                         + URLEncoder.encode(rawChapters[i], StandardCharsets.UTF_8).replace("+", "%20"));
                 String out = "#dl_translator > div.lmt__text > div.lmt__sides_container >div.lmt__side_container.lmt__side_container--target >div.lmt__textarea_container > div.lmt__inner_textarea_container > textarea";
 
@@ -412,9 +498,10 @@ class GenerateChapters {
                         .add(new Resource(
                                 IOUtils.toByteArray(App.class.getClassLoader().getResourceAsStream("stylesheet.css")),
                                 "stylesheet.css"));
+                if (bookCoverImageFilePath.length() >= 2) {
+                    book.setCoverImage(new Resource(new URL(bookCoverImageFilePath).openStream(), "cover.jpg"));
+                }
 
-                book.setCoverImage(new Resource(
-                        new URL("https://cdn.novelupdates.com/images/2016/09/liqiye.jpg").openStream(), "cover.jpg"));
                 for (int i = 0; i < rawChapters.length; i++) {
                     book.addSection("Chapter " + (startChapter + i),
                             new Resource(
@@ -424,7 +511,9 @@ class GenerateChapters {
                 EpubWriter epubWriter = new EpubWriter();
                 String bkName = (startChapter >= endChapter) ? startChapter + "" : startChapter + "-" + endChapter;
                 epubWriter.write(book, new FileOutputStream(filePath + bookName + " Chapter " + bkName + ".epub"));
-            } catch (Exception e) {
+            } catch (
+
+            Exception e) {
                 e.printStackTrace();
             }
 
